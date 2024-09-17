@@ -9,8 +9,10 @@ from glob import glob
 from time import sleep
 import json
 import csv
+import nibabel as nib
 
 import imageio #Bose: Imageio is a Python library that provides an easy interface to read and write a wide range of image data, including animated images, volumetric data
+import matplotlib.pyplot as plt
 import matplotlib.cm as cm #Bose: matplotlib colormaps and functions
 from matplotlib.cm import get_cmap
 from matplotlib.colors import Normalize #Bose: The matplotlib.colors module is used for converting color or numbers arguments to RGBA or RGB.This module is used for mapping numbers to colors or color specification conversion in a 1-D array of colors also known as colormap.And Normalize class is used to normalize data into the interval of [0.0, 1.0].
@@ -21,175 +23,31 @@ norm = Normalize()
 
 import pydicom
 from scipy.ndimage import morphology
+
 from torch.nn import MSELoss
 from viu.io import volume
 from viu.io.volume import read_volume
 from viu.torch.deformation.fields import DVF, set_identity_mapping_cache
 from viu.torch.io.deformation import *
 from viu.util.body_mask import seg_body
-import nibabel as nib
 from viu.util.memory import fmt_mem_size
 from viu.util.config import json_config
+from viu.torch.visualization.ortho_utils import save_ortho_views #from pamomo.visualization.ortho_utils import save_ortho_views
+from viu.torch.measure.voi import measure_voi_list
 
 from pamomo.pca.cmo_pca import CMoPCA
 from pamomo.registration.deformable import reg, force_unload
-from viu.torch.visualization.ortho_utils import save_ortho_views #from pamomo.visualization.ortho_utils import save_ortho_views
 from pamomo.visualization.cmo_pca_plots import *
-
-import matplotlib.pyplot as plt
-
-from viu.torch.measure.voi import measure_voi_list
 from pamomo.metrices.residual_deformation import *
 
-
-# %%
-def seg_body_torch(vol, air_threshold=-300):
-    try:
-        from cc_torch import connected_components_labeling
-        shape = (vol < air_threshold).to(torch.uint8).cuda().squeeze().shape
-
-        s = torch.tensor(shape[::-1])[..., None]
-        p = tuple(torch.hstack((torch.zeros_like(s), torch.fmod(s, 2))).flatten().tolist())
-        m = torch.nn.functional.pad((vol < air_threshold).to(torch.uint8).cuda().squeeze(), p)
-        cc = connected_components_labeling(m)
-        idx = cc.unique()
-        idx = idx[idx != 0][0]  # select index of largest segment that is not zero
-        cc = connected_components_labeling((cc != idx).to(torch.uint8))
-        idx = cc.unique()
-        idx = idx[idx != 0][0]  # select index of largest segment that is not zero
-        cc = cc == idx
-
-        for i in range(cc.ndim):
-            cc = cc.index_select(i, torch.arange(shape[i], dtype=torch.int64, device=cc.device))
-
-        return morphology.binary_dilation(cc.cpu(), iterations=2)
-    except:
-        return seg_body(vol.numpy(), air_threshold=air_threshold).astype(np.int8)
-
-
-# %%
-def sort_by_series_number(dir_list):
-    pattern = re.compile('WFBPOpt(.{2})PercentLongCycles(.*)')
-    fnd = {}
-    for dn in dir_list:
-        fl = glob(os.path.join(dn, '*.dcm'))
-        if len(fl) > 0:
-            with pydicom.dcmread(fl[0]) as dcm:
-                idx = None
-                if 'ReconstructionMethod' in dcm:
-                    m = pattern.match(dcm.ReconstructionMethod)
-                    if m is not None:
-                        method, state = m.groups()
-                        if method == 'PB':
-                            idx = int(state)
-                        elif method == 'AB':
-                            if state.startswith('Inh'):
-                                idx = int(state[3:])
-                            elif state.startswith('Exh'):
-                                idx = 200 - int(state[3:])
-                if idx is not None:
-                    fnd[idx] = dn
-                else:
-                    fnd[dcm.SeriesNumber] = dn
-    return [fnd[sn] for sn in sorted(fnd.keys())]
-
-
-# %%
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
-# %%
-def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey, vols, diff_vols, res, pos, fps, logFilepath):
-    ######## LOG #####
-    logString = f'Creating gif files for {behaviourPrefixedConfigKey}_{patientMRN}'
-    print(logString)
-    with open(logFilepath, 'r+') as f:
-        f.seek(0)
-        f.writelines([logString])
-        f.truncate()
-        f.close()
-    ###################
-    gifInputOutputFolder = os.path.join(patientParentFolder,f'gifFolder')# gifInputOutputFolder = os.path.join(patientParentFolder,f'{patientMRN}/gifFolder/')
-    os.makedirs(gifInputOutputFolder, exist_ok=True)
-    print(f'gifInputOutputFolder {gifInputOutputFolder}')
-
-    print(f'vols type {type(vols)} shape {vols.shape} dtype {vols.dtype}')
-    numPhases = vols.shape[0]
-    print(f'res type {type(vols)} value {res} dtype {res.dtype}')
-    print(f'pos type {type(pos)} value {pos} dtype {pos.dtype}')
-    cfg_jsonPath = os.path.join(patientParentFolder,f'{patientMRN}/{behaviourPrefixedConfigKey}_{patientMRN}_reconViews.json')
-    print(f'jsonPath: {cfg_jsonPath}')
-    ######
-    cfg = json_config(cfg_jsonPath)  #NOTE create json file for edge measurement
-    if 'views' not in cfg.keys:
-        cfg.add_config_item('views', [{'ctr': pos.tolist(), 'voi': None, 'wl': [500, 0]}])
-        cfg.write()
-
-    if 'edge_measurements' not in cfg.keys:
-        cfg.add_config_item('edge_measurements', [])
-        cfg.write()
-    #Create frames
-    listOfFrameFilePaths=[]
-    xView_listOfFrameFilePaths=[]
-    diff_listOfFrameFilePaths=[] #<<<<<<<< NOTE
-    for phaseIdx in range(numPhases):
-        pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
-        xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
-        pngFilePath = os.path.join(gifInputOutputFolder,pngFileName)
-        xView_pngFilePath = os.path.join(gifInputOutputFolder,xView_pngFileName)
-        save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
-                                dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
-        listOfFrameFilePaths.append(pngFilePath)
-        xView_listOfFrameFilePaths.append(xView_pngFilePath)
-
-        diff_pngFileName = f'diff_{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
-        diff_pngFilePath = os.path.join(gifInputOutputFolder,diff_pngFileName)
-        save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', diff_vols[phaseIdx,...], res, pos,
-                                dst_path=gifInputOutputFolder, fn=diff_pngFileName, views=cfg.views)
-        diff_listOfFrameFilePaths.append(diff_pngFilePath)
-
-    del vols
-    del diff_vols
-    #Create gif from frames
-    images = []
-    for filePath in listOfFrameFilePaths:
-        images.append(imageio.imread(filePath))
-        os.remove(filePath)
-    gifFileName = f'{patientMRN}_fps_{fps:02d}_{behaviourPrefixedConfigKey}.gif'
-    gifFilePath = os.path.join(gifInputOutputFolder,gifFileName)
-    imageio.mimsave(gifFilePath, images, fps=fps, loop=0)
-    print(f'Created {gifFilePath}')
-
-    diff_images = []
-    for filePath in diff_listOfFrameFilePaths:
-        diff_images.append(imageio.imread(filePath))
-        os.remove(filePath)
-    diff_gifFileName = f'diff_{patientMRN}_fps_{fps:02d}_{behaviourPrefixedConfigKey}.gif'
-    diff_gifFilePath = os.path.join(gifInputOutputFolder,diff_gifFileName)
-    imageio.mimsave(diff_gifFilePath, diff_images, fps=fps, loop=0)
-    print(f'Created {diff_gifFilePath}')
-
-    xView_images = []
-    for filePath in xView_listOfFrameFilePaths:
-        xView_images.append(imageio.imread(filePath))
-        os.remove(filePath)
-    xView_gifFileName = f'{patientMRN}_fps_{fps:02d}_{behaviourPrefixedConfigKey}_xView.gif'
-    xView_gifFilePath = os.path.join(gifInputOutputFolder,xView_gifFileName)
-    imageio.mimsave(xView_gifFilePath, xView_images, fps=fps, loop=0)
-    print(f'Created {xView_gifFilePath}')
+#%%
+from exampleUtils import *
+mse = MSELoss()
 
 # %%
 workingFolderParent = '/home/wd974888/Downloads'
 logFilepath = f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/log.txt'
-patiendId = 4 #in range(8,9): #range(1,12) #Use truncateDepth_initial=75, truncateDepth_final=50 for Patient=01 and 0,0 for Patient=04
+patiendId = 9 #in range(8,9): #range(1,12) #range(1,12) #Use <truncateDepth_initial, final> : Pat01:<75, 50>;  Pat04:<0, 0>; Pat07:<95, 95>; Pat09:<200, 100>;
 binningType = 'PB' # in ['AB']: #['AB', 'PB']
 patientMRN = f'Patient{patiendId:02d}{binningType}'
 print(f'patientMRN {patientMRN}')
@@ -209,18 +67,16 @@ args =  Namespace(\
     deferred_resampling=True,\
     force_pca=True,\
     plot=True,\
-    reconstructedVol_fn=f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/{patientMRN}/{patientMRN}_recontructed_vols.hdf',\
+    reconstructedVol_fn=f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/{patientMRN}/{patientMRN}_reconstructed_vols.hdf',\
     mean2dcm=True,\
     dirOptionsDict_fn=f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/dirOptionsDict.json',\
     fps=4,\
     prefilter=True,\
-    truncateDepth_initial=0,\
-    truncateDepth_final=0\
+    truncateDepth_initial=200,\
+    truncateDepth_final=100\
     )
 print(args)
 
-# %%
-mse = MSELoss()
 
 # %%
 if args.dvfs is  None: #No Dicom DVF folder  specified
