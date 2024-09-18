@@ -47,7 +47,7 @@ mse = MSELoss()
 # %%
 workingFolderParent = '/home/wd974888/Downloads'
 logFilepath = f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/log.txt'
-patiendId = 9 #in range(8,9): #range(1,12) #range(1,12) #Use <truncateDepth_initial, final> : Pat01:<75, 50>;  Pat04:<0, 0>; Pat07:<95, 95>; Pat09:<200, 100>;
+patiendId = 7 #in range(8,9): #range(1,12) #range(1,12) #Use <truncateDepth_initial, final> : Pat01:<75, 50>;  Pat04:<0, 0>; Pat07:<95, 95>; Pat09:<200, 100>;
 binningType = 'PB' # in ['AB']: #['AB', 'PB']
 patientMRN = f'Patient{patiendId:02d}{binningType}'
 print(f'patientMRN {patientMRN}')
@@ -72,8 +72,8 @@ args =  Namespace(\
     dirOptionsDict_fn=f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/dirOptionsDict.json',\
     fps=4,\
     prefilter=True,\
-    truncateDepth_initial=200,\
-    truncateDepth_final=100\
+    truncateDepth_initial=95,\
+    truncateDepth_final=95\
     )
 print(args)
 
@@ -96,7 +96,7 @@ args.org_reconstructedVol_fn = args.reconstructedVol_fn
 prefilterPrefix = "Interpol" if True==args.prefilter else "Functional"
 
 # %%
-currentDirOptionsKey = f"config10" #in [f"config{i:02d}" for i in range(10,11)]: #[f"config{i:02d}" for i in range(1,11)]
+currentDirOptionsKey = f"config01" #in [f"config{i:02d}" for i in range(10,11)]: #[f"config{i:02d}" for i in range(1,11)]
 behaviourPrefixedConfigKey = f'{prefilterPrefix}_{currentDirOptionsKey}'
 #Check if the resultGifFilePath already exists. If exists, continue
 gifFilePath = os.path.join(f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/gifFolder/',f'{patientMRN}_fps_{args.fps:02d}_{behaviourPrefixedConfigKey}.gif') #{currentDirOptionsKey}.gif
