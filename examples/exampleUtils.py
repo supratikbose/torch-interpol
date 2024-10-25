@@ -46,7 +46,7 @@ from viu.torch.io.deformation import *
 from viu.util.body_mask import seg_body
 from viu.util.memory import fmt_mem_size
 from viu.util.config import json_config
-from viu.torch.visualization.ortho_utils import save_ortho_views, save_single_views #from pamomo.visualization.ortho_utils import save_ortho_views
+# from viu.torch.visualization.ortho_utils import save_ortho_views, save_single_views #from pamomo.visualization.ortho_utils import save_ortho_views
 from viu.torch.measure.voi import measure_voi_list
 
 from pamomo.pca.cmo_pca import CMoPCA
@@ -392,6 +392,10 @@ def sort_by_series_number(dir_list):
     return [fnd[sn] for sn in sorted(fnd.keys())]
 
 def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey, vols, diff_vols, res, pos, fps, logFilepath):
+    #OLD: If save_single_views NOT implemented
+    # from viu.torch.visualization.ortho_utils import save_ortho_views #from pamomo.visualization.ortho_utils import save_ortho_views
+    #NEW: If save_single_views implemented
+    from viu.torch.visualization.ortho_utils import save_ortho_views, save_single_views 
     ######## LOG #####
     logString = f'Creating gif files for {behaviourPrefixedConfigKey}_{patientMRN}'
     print(logString)
@@ -425,6 +429,14 @@ def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey,
     xView_listOfFrameFilePaths=[]
     diff_listOfFrameFilePaths=[] #<<<<<<<< NOTE
     for phaseIdx in range(numPhases):
+        ############### OLD: ############
+        # pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
+        # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
+        # pngFilePath = os.path.join(gifInputOutputFolder,pngFileName)
+        # xView_pngFilePath = os.path.join(gifInputOutputFolder,xView_pngFileName)
+        # save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
+        #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
+        ############### NEW: ############
         pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
         # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
         # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_F_singleView.png'
@@ -435,7 +447,6 @@ def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey,
         #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
         save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
                                 dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views)
-
         # fnCommon='singleView.png'
         fnCommon=pngFileName
         save_single_views( f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
@@ -444,7 +455,7 @@ def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey,
             draw_bounding_boxes_flag=False,
             list_boundingBoxDict = [],
             single_views_to_save_string='F')
-
+        #################################
         listOfFrameFilePaths.append(pngFilePath)
         xView_listOfFrameFilePaths.append(xView_pngFilePath)
 
