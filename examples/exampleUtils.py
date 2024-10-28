@@ -494,3 +494,170 @@ def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey,
     xView_gifFilePath = os.path.join(gifInputOutputFolder,xView_gifFileName)
     imageio.mimsave(xView_gifFilePath, xView_images, fps=fps, loop=0)
     print(f'Created {xView_gifFilePath}')
+
+def saveOriginalAndCoronalTiff(vols, hdfFilePath):
+    # https://forum.image.sc/t/saving-an-nd-image-with-pyimagej/52497/2
+    # tifffile directly or via scikit-image works great for such cases. Here you first have to re-arrange your 
+    # dimensions to ZCYX order and then use tifffile.imwrite:
+    import tifffile
+    tiffFilePath = hdfFilePath.replace('.hdf', '.tiff')
+    tifffile.imwrite(tiffFilePath, np.moveaxis(vols, 0,1), imagej=True, metadata={'axes': 'ZCYX'})
+    tiffFilePath_coronal = hdfFilePath.replace('.hdf', '_coronal.tiff')
+    tifffile.imwrite(tiffFilePath_coronal, np.flip(vols.transpose((3,0,1,2)),axis=2), imagej=True, metadata={'axes': 'ZCYX'})
+
+#Move to exampleUtils
+def read_pca_write_ycomp(pca_fn,  prefilter):
+    import tifffile
+    pca = CMoPCA(example_msk=vol_idx_msk,prefilter=prefilter)
+    pca_mean, pca_res, pca_pos = pca.read(pca_fn, device='cuda')
+    print(f'pca_mean type {pca_mean.type} shape {pca_mean.shape} dtype {pca_mean.dtype} device {pca_mean.device}')
+    print(f'pca_res shape {pca_res.shape} dtype {pca_res.dtype} ')
+    print(f'pca_pos shape {pca_pos.shape} dtype {pca_pos.dtype} ')
+    pca_u=pca.u
+    print(f'pca_u type {pca_u.type} shape {pca_u.shape} dtype {pca_u.dtype} device {pca_u.device}')
+    pca_s=pca.s
+    print(f'pca_s type {pca_s.type} shape {pca_s.shape} dtype {pca_s.dtype} device {pca_s.device}')
+    pca_vt=pca.vt
+    print(f'pca_vt type {pca_vt.type} shape {pca_vt.shape} dtype {pca_vt.dtype} device {pca_vt.device}')
+    pca_all_comp_channel_y = pca_u[:,:,:,:,1].cpu().numpy()
+    print(f'pca_all_comp_channel_y shape {pca_all_comp_channel_y.shape} dtype {pca_all_comp_channel_y.dtype} ')
+    pca_all_comp_channel_y_coronal_tiffFilePath = pca_fn.replace('.hdf', '_pca_all_comp_channel_y_coronal.tiff')
+    tifffile.imwrite(pca_all_comp_channel_y_coronal_tiffFilePath, np.flip(pca_all_comp_channel_y.transpose((3,0,1,2)),axis=2), imagej=True, metadata={'axes': 'ZCYX'})
+
+#Example from Igor's code
+def do_simple_fp(vol, vol_res, vol_pos, angles, geo, pname, hu_offset=-1000, hu_slope=50000):
+    import torch
+    from viu.io import volume
+    from viu.io import hdfproj
+    from viu.torch.varian_reco_ext.varian_reco import VForwardprojectionModule
+    #from viu.util.cbct_geometry import CBCTGeometry
+    #variable geo is of type CBCTGeometry
+    prj_cnt = len(angles)
+    print(f'FP of input volume: {np.shape(vol)} {vol_res} {vol_pos}')
+    vol = volume.convert_unit(vol, unit = 'HU', to_unit='Attenuation', offset=hu_offset, slope = hu_slope)
+    proj_stack_shape = [prj_cnt, geo.prjSize[1], geo.prjSize[0]]
+    device = torch.device("cuda:0")
+    vol_shape = vol.shape[::-1]
+    fpm = VForwardprojectionModule(proj_stack_shape, geo.prjRes, vol_shape, vol_res, vol_tr=vol_pos,
+                                   sad=geo.sad, use_half_fan_weighting=geo.half_fan).to(device, torch.float32)
+    iso2pix = torch.tensor(geo.createIso2Pix(angles)[np.newaxis, ...]).cuda()
+    #print(iso2pix)
+    fpm.set_iso2pix(iso2pix, prj_cnt)
+    vol = torch.tensor(vol[None, ...]).cuda()
+    prjs = fpm(vol)
+    projs = prjs.detach().squeeze().cpu().numpy()
+    hdfproj.write_proj(pname, projs, iso2pix.detach().squeeze().cpu().numpy(), geo.prjRes,
+                        angles, geo.sad, geo.sid, geo.imagerLat, geo.half_fan, geo.scanVelocity, overwrite=True)
+    return projs
+
+#Create a function for computing forward projections
+def generateForwardProjections(
+        vol_data_ZYX,
+        vol_res_XYZ_mm,
+        vol_pos_XYZ_mm, #this is center of CT volume in patient co-ordinate system
+        iso_pos_XYZ_mm, #Ideally this is  planned isocenter in  CT volume in patient co-ordinate system, the point that aligns with machine isocenter
+        alreadyNormalizedFlag=False,
+        hu_offset=-1000,
+        hu_max=400,
+        hu_slope=50000,
+        proj_angles_degrees=np.array([0.0, 90.0], 'float32'),
+        srcPos_mm=(0.0, 0.0, 1000),
+        detPos_mm=(0.0, 0.0, -500),
+        prjSize_pixels=(2048, 2048),
+        prjRes_mm=(0.388, 0.388),
+        scan_velocity_degPersec_int=6,
+        writeProjectionsInHD5File=False,
+        projectionFileName="",
+        debugFlag=False
+        ):
+    """
+    vol_data_ZYX : numpy array, with depth Z (axial) as 1st dimension
+    vol_res_XYZ_mm : numpy 1D array with resolution in mm in X(row), Y(column), Z(depth) dimension
+    vol_pos_XYZ_mm : numpy 1D array describing  center of CT volume in patient co-ordinate system
+    iso_pos_XYZ_mm : numpy 1D array describing  planned isocenter in  CT volume in patient co-ordinate system, the point that aligns with machine isocenter   
+    alreadyNormalizedFlag: If not sure, mark as False
+    hu_offset = hu_min: converting from normalized back to HU : -1000
+    hu_max : max HU value = 400
+    hu_slope: converting from normalized back to HU: 50000
+    proj_angles_degrees: numpy 1D array with gantry angles in degrees at which projections will be  computed (0.0, 90.0) 
+    srcPos_mm: tuple describing source position in IEC co-ordinate system : (0.0, 0.0, 1000)
+    detPos_mm: tuple describing center of detector position in IEC co-ordinate system : (0.0, 0.0, -500)
+    prjSize_pixels: tuple describing detector width and height in number of pixels : (2048, 2048)
+    prjRes_mm: tuple describing detector pixel width and height in mm : (0.388, 0.388)
+    scan_velocity_degPersec_int : integer: gantry speed in degrees per sec : 6
+    writeProjectionsInHD5File : if we want to write out the projections in hd5 file
+    projectionFileName: HD5 file name where projections will be written out.
+    debugFlag : print debug information
+    """
+    import torch
+    from viu.io import volume
+    from viu.io import hdfproj
+    from viu.torch.varian_reco_ext.varian_reco import VForwardprojectionModule
+    from viu.util.cbct_geometry import CBCTGeometry
+
+    volMax = np.max(vol_data_ZYX)
+    volMin = np.min(vol_data_ZYX)
+    if True==debugFlag:
+        print(f'loaded volume min {volMin} max {volMax}')
+    #First scale volume to 0-1 (if not already)
+    volScaled_data_ZYX = (vol_data_ZYX - volMin) / (volMax - volMin)
+    #Then scale to hu_min to hu_max
+    hu_min=hu_offset
+    vol_ZYX_HU = hu_min + volScaled_data_ZYX * (hu_max -hu_min)
+
+    num_proj=len(proj_angles_degrees)
+    if True==debugFlag:
+        print(f'vol_ZYX_HU minHU {np.min(vol_ZYX_HU)} maxHU {np.max(vol_ZYX_HU)} shape {vol_ZYX_HU.shape} res_XYZ {vol_res_XYZ_mm} vol-center pos_XYZ {vol_pos_XYZ_mm} isocenter pos_XYZ {iso_pos_XYZ_mm} ')
+        print(f'num_proj {num_proj} angles_degrees {proj_angles_degrees}')
+
+    #Create geometry for forward projection
+    geo = CBCTGeometry()
+    # geo.fromTruebeam(half_fan=False, filtered=True)
+    geo.fromTruebeam(half_fan=False, filtered=False)#<--- Not really needed
+    # geo.print()
+    # 256*2mm=512mm at isocenter
+    # 512*1500/1000 = 768mm projected at isocenter
+    # 1024*0.388 = 397.312mm imager size in mm << 768mm
+    # 768 *0.388 = 297.984mm imager size in mm << 768mm
+    geo.fromPos(srcPos=srcPos_mm,
+                detPos=detPos_mm,
+                prjSize=prjSize_pixels,
+                prjRes=prjRes_mm,
+                volSize=vol_ZYX_HU.shape,
+                volRes=vol_res_XYZ_mm,
+                scanVelocity=scan_velocity_degPersec_int)
+    geo.check()
+    if True==debugFlag:
+        geo.print()
+
+    # prj_cnt = len(angles)
+    # print(f'FP of input volume: Shape_ZYX {np.shape(vol)} Resolution_XYZ{vol_res} Position_XYZ {vol_pos}')
+    #convert to attenuation
+    vol_ZYX_attenuation = volume.convert_unit(vol_ZYX_HU, unit = 'HU', to_unit='Attenuation', offset=hu_offset, slope = hu_slope)
+    prj_stack_shape = [num_proj, geo.prjSize[1], geo.prjSize[0]]
+    device = torch.device("cuda:0")
+    vol_XYZ_shape = vol_ZYX_attenuation.shape[::-1] #Shape ZYX to shape XYZ
+    vol_tr = vol_pos_XYZ_mm - iso_pos_XYZ_mm #The vector from planning isocenter to the CT volume center, this helps to identify each CT voxel in IEC co-ordinate system
+    fpm = VForwardprojectionModule(
+        prj_stack_shape=prj_stack_shape,
+        prj_res=geo.prjRes,
+        vol_size=vol_XYZ_shape,
+        vol_res=vol_res_XYZ_mm,
+        vol_tr=vol_tr,
+        sad=geo.sad,
+        use_half_fan_weighting=geo.half_fan).to(device, torch.float32)
+    iso2pix = torch.tensor(geo.createIso2Pix(angles=proj_angles_degrees)[np.newaxis, ...]).cuda()
+    #print(iso2pix)
+    fpm.set_iso2pix(iso2pix, prj_cnt=num_proj)
+    vol = torch.tensor(vol_ZYX_attenuation[None, ...]).cuda()
+    prjs = fpm(vol)
+    projs = prjs.detach().squeeze().cpu().numpy()
+    if True==writeProjectionsInHD5File:
+        print(f'Wring projections in {projectionFileName}')
+        #In current version of VImaging Utils, default parameter additional_acq_params =None will give  hdf file creation error
+        #Therefore we create dummy additional_acq_params dictionary and pass it while file creation
+        dummy_additional_acq_params_dict = {'acq_param': 'dummy'}
+        hdfproj.write_proj(projectionFileName, projs, iso2pix.detach().squeeze().cpu().numpy(), geo.prjRes,
+            proj_angles_degrees, geo.sad, geo.sid, geo.imagerLat, geo.half_fan, geo.scanVelocity, overwrite=True,
+            additional_acq_params=dummy_additional_acq_params_dict)
+    return projs
