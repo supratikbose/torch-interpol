@@ -506,7 +506,7 @@ def saveOriginalAndCoronalTiff(vols, hdfFilePath):
     tifffile.imwrite(tiffFilePath_coronal, np.flip(vols.transpose((3,0,1,2)),axis=2), imagej=True, metadata={'axes': 'ZCYX'})
 
 #Move to exampleUtils
-def read_pca_write_ycomp(pca_fn,  prefilter):
+def read_pca_write_ycomp(pca_fn, vol_idx_msk, prefilter):
     import tifffile
     pca = CMoPCA(example_msk=vol_idx_msk,prefilter=prefilter)
     pca_mean, pca_res, pca_pos = pca.read(pca_fn, device='cuda')
@@ -549,6 +549,18 @@ def do_simple_fp(vol, vol_res, vol_pos, angles, geo, pname, hu_offset=-1000, hu_
     hdfproj.write_proj(pname, projs, iso2pix.detach().squeeze().cpu().numpy(), geo.prjRes,
                         angles, geo.sad, geo.sid, geo.imagerLat, geo.half_fan, geo.scanVelocity, overwrite=True)
     return projs
+
+# #From Sangyu's message in teams
+# # Get the projection transform matrix
+# with h5py.File(projection_file_path) as F:
+
+# 		P = F["Projection"].attrs["IsoToPixelTransform"].transpose()
+# # Get the point position relative to isocenter in world coordinate
+# PP = np.array([X, Y, Z, 2]) - np.array([X_iso , Y_iso, Z_iso, 1]) 
+# # Calculate
+# PPP = P @ PP
+# # 2D pixel position
+# PPP[:2]/PPP[3]
 
 #Create a function for computing forward projections
 def generateForwardProjections(

@@ -47,7 +47,7 @@ mse = MSELoss()
 # %%
 workingFolderParent = '/home/wd974888/Downloads'
 logFilepath = f'{workingFolderParent}/workingFolder/DeformationExperiment/PCA/log.txt'
-patiendId = 7 #in range(8,9): #range(1,12) #range(1,12) #Use <truncateDepth_initial, final> : Pat01:<75, 50>;  Pat04:<0, 0>; Pat07:<95, 95>; Pat09:<200, 100>;
+patiendId = 7 #in range(8,9): #range(1,12) #range(1,12) #Use <truncateDepth_initial, final> : Pat01:<50, 50>; Pat02:<50, 50>; Pat04:<0, 0>; Pat07:<95, 95>; Pat09:<200, 100>;
 binningType = 'PB' # in ['AB']: #['AB', 'PB']
 patientMRN = f'Patient{patiendId:02d}{binningType}'
 print(f'patientMRN {patientMRN}')
