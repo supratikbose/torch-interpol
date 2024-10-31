@@ -256,7 +256,7 @@ if dvfs is None:
                 for i in idx:
                     #Exception in PyTorch 2.2 env: IndexError: The shape of the mask [1, 590, 512, 512] at index 0 does not match the shape of the indexed tensor [590, 512, 512] at index 0
                     #Because msks[0].shape = [590, 512, 512], But [label == i].shape = [1, 590, 512, 512]
-                    msk[0][label == i] = True #Replaced [0] to remove exception in Baden environment #msks[0][label == i] = True
+                    msks[0][label == i] = True #Replaced [0] to remove exception in Baden environment #msks[0][label == i] = True
                 # ---
 
         co_dvf_res = None
