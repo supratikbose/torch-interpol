@@ -668,7 +668,7 @@ def generateForwardProjections(
         print(f'Wring projections in {projectionFileName}')
         #In current version of VImaging Utils, default parameter additional_acq_params =None will give  hdf file creation error
         #Therefore we create dummy additional_acq_params dictionary and pass it while file creation
-        dummy_additional_acq_params_dict = {'acq_param': 'dummy'}
+        dummy_additional_acq_params_dict = {'ImagerOrigin':'LT', 'additional_acq_params': 'dummy'}
         hdfproj.write_proj(projectionFileName, projs, iso2pix.detach().squeeze().cpu().numpy(), geo.prjRes,
             proj_angles_degrees, geo.sad, geo.sid, geo.imagerLat, geo.half_fan, geo.scanVelocity, overwrite=True,
             additional_acq_params=dummy_additional_acq_params_dict)
