@@ -392,10 +392,12 @@ def sort_by_series_number(dir_list):
     return [fnd[sn] for sn in sorted(fnd.keys())]
 
 def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey, vols, diff_vols, res, pos, fps, logFilepath):
-    #OLD: If save_single_views NOT implemented
-    # from viu.torch.visualization.ortho_utils import save_ortho_views #from pamomo.visualization.ortho_utils import save_ortho_views
-    #NEW: If save_single_views implemented
-    from viu.torch.visualization.ortho_utils import save_ortho_views, save_single_views 
+    # #OLD: If save_single_views NOT implemented
+    # # from viu.torch.visualization.ortho_utils import save_ortho_views #from pamomo.visualization.ortho_utils import save_ortho_views
+    # #NEW: If save_single_views implemented
+    # from viu.torch.visualization.ortho_utils import save_ortho_views, save_single_views 
+    #NOTE NEWEST
+    from viu.torch.visualization.ortho_utils import save_ortho_views
     ######## LOG #####
     logString = f'Creating gif files for {behaviourPrefixedConfigKey}_{patientMRN}'
     print(logString)
@@ -429,40 +431,56 @@ def generateGifFile(patientParentFolder, patientMRN, behaviourPrefixedConfigKey,
     xView_listOfFrameFilePaths=[]
     diff_listOfFrameFilePaths=[] #<<<<<<<< NOTE
     for phaseIdx in range(numPhases):
-        ############### OLD: ############
+        # ############### OLD: ############
+        # # pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
+        # # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
+        # # pngFilePath = os.path.join(gifInputOutputFolder,pngFileName)
+        # # xView_pngFilePath = os.path.join(gifInputOutputFolder,xView_pngFileName)
+        # # save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
+        # #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
+        # ############### NEW: ############
         # pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
-        # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
+        # # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
+        # # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_F_singleView.png'
+        # xView_pngFileName = f'F_{pngFileName}'
         # pngFilePath = os.path.join(gifInputOutputFolder,pngFileName)
         # xView_pngFilePath = os.path.join(gifInputOutputFolder,xView_pngFileName)
+        # # save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
+        # #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
         # save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
-        #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
-        ############### NEW: ############
-        pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
-        # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_xView.png'
-        # xView_pngFileName = f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_F_singleView.png'
-        xView_pngFileName = f'F_{pngFileName}'
+        #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views)
+        # # fnCommon='singleView.png'
+        # fnCommon=pngFileName
+        # save_single_views( f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
+        #     ctr=cfg.views[0]['ctr'], voi=cfg.views[0]['voi'], centered=False, wl=cfg.views[0]['wl'], diff=False,
+        #     fnCommon=fnCommon, dst_path=gifInputOutputFolder, ovl=None, ovl_alpha=0.2, ovl_fig=None, ovl_fig_quad=3,
+        #     draw_bounding_boxes_flag=False,
+        #     list_boundingBoxDict = [],
+        #     single_views_to_save_string='F')
+        #################################
+        #NOTE NEWEST
+        title=f'{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view'
+        pngFileName=f'{title}.png'
+        xView_pngFileName=f'F_{title}.png'
         pngFilePath = os.path.join(gifInputOutputFolder,pngFileName)
         xView_pngFilePath = os.path.join(gifInputOutputFolder,xView_pngFileName)
-        # save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
-        #                         dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views, additionalSingleViewToSave='x',additional_fn=xView_pngFileName)
-        save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
-                                dst_path=gifInputOutputFolder, fn=pngFileName, views=cfg.views)
-        # fnCommon='singleView.png'
-        fnCommon=pngFileName
-        save_single_views( f'{phaseIdx}:{behaviourPrefixedConfigKey}', vols[phaseIdx,...], res, pos,
-            ctr=cfg.views[0]['ctr'], voi=cfg.views[0]['voi'], centered=False, wl=cfg.views[0]['wl'], diff=False,
-            fnCommon=fnCommon, dst_path=gifInputOutputFolder, ovl=None, ovl_alpha=0.2, ovl_fig=None, ovl_fig_quad=3,
-            draw_bounding_boxes_flag=False,
-            list_boundingBoxDict = [],
-            single_views_to_save_string='F')
+        save_ortho_views(title, vols[phaseIdx,...], res, pos, dst_path=gifInputOutputFolder, views=cfg.views, save_planes='CF')
         #################################
         listOfFrameFilePaths.append(pngFilePath)
         xView_listOfFrameFilePaths.append(xView_pngFilePath)
 
-        diff_pngFileName = f'diff_{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
-        diff_pngFilePath = os.path.join(gifInputOutputFolder,diff_pngFileName)
-        save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', diff_vols[phaseIdx,...], res, pos,
-                                dst_path=gifInputOutputFolder, fn=diff_pngFileName, views=cfg.views)
+        #################################
+        # diff_pngFileName = f'diff_{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view.png'
+        # diff_pngFilePath = os.path.join(gifInputOutputFolder,diff_pngFileName)
+        # save_ortho_views(f'{phaseIdx}:{behaviourPrefixedConfigKey}', diff_vols[phaseIdx,...], res, pos,
+        #                         dst_path=gifInputOutputFolder, fn=diff_pngFileName, views=cfg.views)
+        #################################
+        #NOTE NEWEST
+        diff_title= f'diff_{behaviourPrefixedConfigKey}_{patientMRN}_phase_{phaseIdx:02d}_view'
+        diff_pngFileName=f'{diff_title}.png'
+        diff_pngFilePath= os.path.join(gifInputOutputFolder,diff_pngFileName)
+        save_ortho_views(diff_title, diff_vols[phaseIdx,...], res, pos, dst_path=gifInputOutputFolder,views=cfg.views)
+        #################################
         diff_listOfFrameFilePaths.append(diff_pngFilePath)
 
     del vols
