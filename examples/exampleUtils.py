@@ -50,7 +50,7 @@ from viu.util.config import json_config
 from viu.torch.measure.voi import measure_voi_list
 
 from pamomo.pca.cmo_pca import CMoPCA
-from pamomo.registration.deformable import reg, force_unload
+# from pamomo.registration.deformable import reg, force_unload
 from pamomo.visualization.cmo_pca_plots import *
 from pamomo.metrices.residual_deformation import *
 
@@ -222,31 +222,67 @@ class v1_volumeComparisonViewer3D:
         # plt.axis("scaled")
         plt.show()
 
-# Rotation around Dicom Z axis : As viewed into Axial plane    from origin toward +Z axis (towards H(Head)), with A (Anterior) on top of the view, pass clockwise rotation is positive
-# Rotation around Dicom Y axis : As viewed into Coronal plane  from origin toward +Y axis (towards P(Posterior)), with H (Head) on top of the view, pass clockwise rotation is positive
-# Rotation around Dicom X axis : As viewed  (lying down horizontally) into Sagittal plane from +X toward origin (towards R(Right)) with H (Head) on top of the view, pass clockwise rotation is positive
-
-def getPushRotationMatrix(theta_deg, viewString, center_slice_z, center_row_y, center_col_x):
+def getPushRotationMatrix(theta_deg, viewString,
+        center_slice_z, center_row_y, center_col_x):
     """
     viewString : axial, coronal, sagittal
     center_slice_z : center along 1st dimension
     center_row_y : center along 2nd dimensioon
     center_col_x : center along 3rd dimension
+
+    Rotation around Dicom Z axis : As viewed into Axial plane    from origin
+    toward +Z axis (towards H(Head)), with A (Anterior) on top of the view,
+    pass counter-clockwise rotation as positive
+
+    Rotation around Dicom Y axis : As viewed into Coronal plane  from origin
+    toward +Y axis (towards P(Posterior)), with H (Head) on top of the view,
+    pass counter-clockwise rotation as positive
+
+    Rotation around Dicom X axis : As viewed  (lying down horizontally) into
+    Sagittal plane from +X toward origin (Rowards R(Right)) with H (Head) on
+    top of the view, pass CLOCKWISE rotation as  positive AS  THE VIEW IS LOOKING
+    TOWARDS ORIGIN FROM +X Axis
+
+    Internally  use the standard RH Coordinate system rotationmatrix as described in
+    wikipedia: https://en.wikipedia.org/wiki/Rotation_matrix
     """
-    assert viewString in ["axial", "coronal", "sagittal"], f'viewString {viewString} not in ["axial", "coronal", "sagittal"]'
-    rad = np.radians(theta_deg)
+    assert viewString in ["axial", "coronal", "sagittal"],\
+        f'viewString {viewString} not in ["axial", "coronal", "sagittal"]'
+    rad = 0 - np.radians(theta_deg) if viewString == "sagittal"\
+        else np.radians(theta_deg)
+
     if "axial"==viewString:
-        rot =           np.array([[1., 0, 0, 0],[ 0, np.cos(rad), np.sin(rad), 0],[0, -np.sin(rad), np.cos(rad), 0],[0, 0, 0, 1.] ], 'float32')
+        rot =           np.array([
+            [1.,            0,            0,  0],
+            [ 0,  np.cos(rad), -np.sin(rad),  0],
+            [ 0,  np.sin(rad),  np.cos(rad),  0],
+            [ 0,            0,            0, 1.] ],'float32')
     if "coronal"==viewString:
         rad = -rad
-        rot =           np.array([[ np.cos(rad), 0, np.sin(rad), 0],[0, 1., 0, 0],[ -np.sin(rad), 0, np.cos(rad), 0],[0, 0, 0, 1.] ], 'float32')
+        rot =           np.array([
+            [  np.cos(rad),  0, -np.sin(rad),  0],
+            [            0, 1.,            0,  0],
+            [  np.sin(rad),  0,  np.cos(rad),  0],
+            [            0,  0,            0, 1.] ], 'float32')
     if "sagittal"==viewString:
         rad = -rad
-        rot =           np.array([[ np.cos(rad), np.sin(rad), 0, 0],[-np.sin(rad), np.cos(rad), 0,  0],[0, 0, 1., 0],[0, 0, 0, 1.] ], 'float32')
+        rot =           np.array([
+            [ np.cos(rad), -np.sin(rad),  0,  0],
+            [ np.sin(rad),  np.cos(rad),  0,  0],
+            [           0,            0, 1.,  0],
+            [           0,            0,  0, 1.] ], 'float32')
     # print(f'rot: {rot}')
-    transToOrigin = np.array([[1, 0, 0, -center_slice_z],[ 0, 1, 0, -center_row_y],[0, 0, 1, -center_col_x], [0, 0, 0, 1.]], 'float32')
+    transToOrigin = np.array([
+        [ 1, 0, 0, -center_slice_z],
+        [ 0, 1, 0,   -center_row_y],
+        [ 0, 0, 1,   -center_col_x],
+        [ 0, 0, 0,              1.]], 'float32')
     # print(f'transToOrigin: {transToOrigin}')
-    transToCenter = np.array([[1, 0, 0, center_slice_z],[ 0, 1, 0, center_row_y],[0, 0, 1, center_col_x], [0, 0, 0, 1.]], 'float32')
+    transToCenter = np.array([
+        [ 1, 0, 0, center_slice_z],
+        [ 0, 1, 0,   center_row_y],
+        [ 0, 0, 1,   center_col_x],
+        [ 0, 0, 0,             1.]], 'float32')
     # print(f'transToCenter: {transToCenter}')
     pushAffine_np= transToCenter @ rot @ transToOrigin
     return pushAffine_np
