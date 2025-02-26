@@ -223,142 +223,158 @@ class v1_volumeComparisonViewer3D:
         plt.show()
 
 def getPushRotationMatrix(theta_deg, viewString,
-        center_slice_z, center_row_y, center_col_x):
+        center_slice_z, center_row_y, center_col_x,
+        tra_z, tra_y, tra_x):
     """
-    viewString : axial, coronal, sagittal
-    center_slice_z : center along 1st dimension
-    center_row_y : center along 2nd dimensioon
-    center_col_x : center along 3rd dimension
+    theta_deg: SINGLE angle of rotation along ONE viewString axis
+    viewString : axial, coronal, sagittal   (along Z, Y, X axis respectively)
+
+    Center of rotation is given by center_slice_z, center_row_y, center_col_x.
+    center_slice_z : center along 1st / Z dimension
+    center_row_y : center along 2nd / Y dimensioon
+    center_col_x : center along 3rd / X dimension
+
+    Order of operation is first rotation, then translation where the translation
+    is along the rotated axis. So the order of operation is
+    1. Translate to origin
+    2. Rotate
+    3. Translate back to center
+    4. Translate along the rotated axis
+    tra_z, tra_y, tra_x : translation along Z, Y, X axis respectively
+
+    For  understanding  clockwise or counter-clockwise rotation direction
+    in the view direction, read the description below.
 
     Rotation around Dicom Z axis : As viewed into Axial plane    from origin
     toward +Z axis (towards H(Head)), with A (Anterior) on top of the view,
-    pass counter-clockwise rotation as positive
+    TAKE clockwise rotation as positive
 
     Rotation around Dicom Y axis : As viewed into Coronal plane  from origin
     toward +Y axis (towards P(Posterior)), with H (Head) on top of the view,
-    pass counter-clockwise rotation as positive
+    TAKE  clockwise rotation as positive
 
     Rotation around Dicom X axis : As viewed  (lying down horizontally) into
     Sagittal plane from +X toward origin (Rowards R(Right)) with H (Head) on
-    top of the view, pass CLOCKWISE rotation as  positive AS  THE VIEW IS LOOKING
-    TOWARDS ORIGIN FROM +X Axis
+    top of the view, TAKE COUNTER-CLOCKWISE rotation as  positive AS  THE 
+    VIEW IS LOOKING TOWARDS ORIGIN FROM +X Axis
 
     Internally  use the standard RH Coordinate system rotationmatrix as described in
     wikipedia: https://en.wikipedia.org/wiki/Rotation_matrix
+
     """
     assert viewString in ["axial", "coronal", "sagittal"],\
         f'viewString {viewString} not in ["axial", "coronal", "sagittal"]'
-    rad = 0 - np.radians(theta_deg) if viewString == "sagittal"\
-        else np.radians(theta_deg)
+    # rad = np.radians(theta_deg) if viewString in ["axial", "coronal"]\
+    #     else 0 - np.radians(theta_deg)
+    rad = np.radians(theta_deg)
 
     if "axial"==viewString:
-        rot =           np.array([
+        rot = np.array([
             [1.,            0,            0,  0],
             [ 0,  np.cos(rad), -np.sin(rad),  0],
             [ 0,  np.sin(rad),  np.cos(rad),  0],
             [ 0,            0,            0, 1.] ],'float32')
     if "coronal"==viewString:
-        rad = -rad
-        rot =           np.array([
-            [  np.cos(rad),  0, -np.sin(rad),  0],
+        rot = np.array([
+            [  np.cos(rad),  0,  np.sin(rad),  0],
             [            0, 1.,            0,  0],
-            [  np.sin(rad),  0,  np.cos(rad),  0],
+            [ -np.sin(rad),  0,  np.cos(rad),  0],
             [            0,  0,            0, 1.] ], 'float32')
     if "sagittal"==viewString:
-        rad = -rad
-        rot =           np.array([
+        rot = np.array([
             [ np.cos(rad), -np.sin(rad),  0,  0],
             [ np.sin(rad),  np.cos(rad),  0,  0],
             [           0,            0, 1.,  0],
             [           0,            0,  0, 1.] ], 'float32')
     # print(f'rot: {rot}')
-    transToOrigin = np.array([
+    tra_to_center = np.array([
         [ 1, 0, 0, -center_slice_z],
         [ 0, 1, 0,   -center_row_y],
         [ 0, 0, 1,   -center_col_x],
         [ 0, 0, 0,              1.]], 'float32')
-    # print(f'transToOrigin: {transToOrigin}')
-    transToCenter = np.array([
+    # print(f'transToOrigin: {tra_to_center}')
+    tra_to_origin = np.array([
         [ 1, 0, 0, center_slice_z],
         [ 0, 1, 0,   center_row_y],
         [ 0, 0, 1,   center_col_x],
         [ 0, 0, 0,             1.]], 'float32')
-    # print(f'transToCenter: {transToCenter}')
-    pushAffine_np= transToCenter @ rot @ transToOrigin
+    # print(f'transToCenter: {tra_to_origin}')
+    tra_final = np.array([
+        [ 1, 0, 0, tra_z],
+        [ 0, 1, 0, tra_y],
+        [ 0, 0, 1, tra_x],
+        [ 0, 0, 0,  1.]], 'float32')
+    # print(f'transFinal: {tra_final}')
+
+    #The final transformation is described as A(x-c)+t+c
+    #A(x-c) = rot @ tra_to_center @ x
+    #tra_final @ tra_to_origin @ rot @ tra_to_center @ x = A(x-c)+t+c
+
+    #Note however our rot-matrix formulation assumes X-Y-Z co-ordinate sequence 
+    # but the volume / points we pass have a Z-Y-X layout. So we use 
+    # A = np.transpose(rot) instead of rot.
+    pushAffine_np= tra_final @ tra_to_origin @ np.transpose(rot) @ tra_to_center
     return pushAffine_np
 
-#Generate normalized torch-functional  grid   from  torch-interpol grid.
-def convertGrid_interpol2functional(interpol_grid_batched, depth, height, width):
-    # printTensor("interpol_grid_batched", interpol_grid_batched)
-    batchSize=interpol_grid_batched.shape[0]
-    #normalization matrix
-    normalizationMat = torch.tensor([[2./depth, 0, 0, -1.],[ 0, 2./height, 0, -1.],[0, 0, 2./width, -1.], [0, 0, 0, 1.]],
-        dtype=torch.float32, device=interpol_grid_batched.device)
-    nb_dim = normalizationMat.shape[-1] - 1
-    normalizationMat_rot = normalizationMat[:nb_dim, :nb_dim]
-    normalizationMat_tr = normalizationMat[:nb_dim, -1]
-    #Expand normalization matrix by batchSize
-    normalizationMat_rot = normalizationMat_rot.expand(batchSize, *normalizationMat_rot.shape)
-    # printTensor("normalizationMat_rot", normalizationMat_rot)
-    normalizationMat_tr =   normalizationMat_tr.expand(batchSize, *normalizationMat_tr.shape)
-    # printTensor("normalizationMat_tr", normalizationMat_tr)
-    # Add dimension (in-place) in the end to support  matmul with normalizationMat_rot.
-    # Then remove that dimension before adding  with normalizationMat_tr
-    field_ij_batched_normalized = torch.matmul(normalizationMat_rot, interpol_grid_batched.unsqueeze(-1)).squeeze(-1) + normalizationMat_tr
-    # ij to xy
-    field_xy_batched_normalized = torch.flip(field_ij_batched_normalized, [-1])
-    return field_xy_batched_normalized
-
-#Generate normalized torch-functional  grid   from  torch-interpol grid.
-def convertGrid_functional2interpol(functional_grid_batched, depth, height, width):
-    # printTensor("functional_grid_batched", functional_grid_batched)
-    batchSize=functional_grid_batched.shape[0]
-    #xy to ij
-    field_ij_batched_normalized = torch.flip(functional_grid_batched, [-1])
-    #deNormalization matrix
-    deNormalizationMat = torch.linalg.inv(torch.tensor([[2./depth, 0, 0, -1.],[ 0, 2./height, 0, -1.],[0, 0, 2./width, -1.], [0, 0, 0, 1.]],
-        dtype=torch.float32, device=functional_grid_batched.device))
-    nb_dim = deNormalizationMat.shape[-1] - 1
-    deNormalizationMat_rot = deNormalizationMat[:nb_dim, :nb_dim]
-    deNormalizationMat_tr = deNormalizationMat[:nb_dim, -1]
-    #Expand deNormalization matrix by batchSize
-    deNormalizationMat_rot = deNormalizationMat_rot.expand(batchSize, *deNormalizationMat_rot.shape)
-    deNormalizationMat_tr =   deNormalizationMat_tr.expand(batchSize, *deNormalizationMat_tr.shape)
-    # Add dimension (in-place) in the end to support  matmul with normalizationMat_rot.
-    # Then remove that dimension before adding  with normalizationMat_tr
-    field_ij_batched_deormalized = torch.matmul(deNormalizationMat_rot, field_ij_batched_normalized.unsqueeze(-1)).squeeze(-1) + deNormalizationMat_tr
-    return field_ij_batched_deormalized
-
-def getPyTorchAffineMatTensor(unNormalizedAffineMatImageCoord_a2b_np,  depth_a, height_a, width_a,  depth_b, height_b, width_b, device=torch.device('cpu')):
+def getPyTorchAffineMatTensor(unNormalizedAffineMatImageCoord_a2b_np,
+        depth_a, height_a, width_a,
+        depth_b, height_b, width_b,
+        device=torch.device('cpu')):
     """
     parameters:
-    unNormalizedAffineMatImageCoord_a2b_np : 4x4 (homogeneous) affine matrix, used in torch-interpol,  to be multiplied with pixel location (row, col) = (i,j) of location
+    unNormalizedAffineMatImageCoord_a2b_np : 4x4 (homogeneous)
+    affine matrix, used in torch-interpol,  to be multiplied with
+    pixel location (row, col) = (i,j) of location
     in volume a to obtain location in volume b,
     depth_a, height_a, width_a: depth, height, width  of vol a
     depth_b, height_b, width_b:  depth, height, width  of vol b
-    returnPyTorchTheta: If true, it also returns pyTorch Theta (to be used by F.affine_grid or VIU DVF.affine).
+    returnPyTorchTheta: If true, it also returns pyTorch Theta
+    (to be used by F.affine_grid or VIU DVF.affine).
 
-    It should be noted that pyTorch Theta is a tensor version of  normalizedAffineMat but to be applied on normalised (x,y)
-    instead of un-normalised pixel co-ordinate (i,j) as is the norm in  torch-interpol. Therefore, after normalization the rows of the matrix are swapped.
+    It should be noted that pyTorch Theta is a tensor version of
+    normalizedAffineMat but to be applied on normalised (x,y)
+    instead of un-normalised pixel co-ordinate (i,j) as is the norm in
+    torch-interpol. Therefore, after normalization the rows of the matrix are
+    swapped.
 
-    Finally the last homogeneous row is not required in 
+    Finally the last homogeneous row is not required in
 
     return:
-    1. normalized affine matrix  that is to be multiplied with mormalized pixel location (y,x) (from -1 to +1) of image a to obtain
+    1. normalized affine matrix  that is to be multiplied with normalized
+    pixel location (y,x) (from -1 to +1) of image a to obtain
     normalized pixel location in image b.
-    2. pyTorch Theta to be used by F.affine_grid if returnPyTorchTheta is  true
-
     """
-    T_normalized2Regular_a_yx = np.linalg.inv(np.array([[2./depth_a, 0, 0, -1.],[ 0, 2./height_a, 0, -1.],[0, 0, 2./width_a, -1.], [0, 0, 0, 1.]], 'float32'))
-    T_regular2Normalized_b_yx =               np.array([[2./depth_b, 0, 0, -1.],[ 0, 2./height_b, 0, -1.],[0, 0, 2./width_b, -1.], [0, 0, 0, 1.]], 'float32')
-    #Normalize, convert into tensor, use 1st 3 rows.
-    pyTorchAffineMatTensor = torch.from_numpy(T_regular2Normalized_b_yx @ unNormalizedAffineMatImageCoord_a2b_np @ T_normalized2Regular_a_yx).to(device)[0:3,:]
-    # In rows and columens: 0->2, 2->0, 1->1 [0,0], [0,1], [0,2], [1,0], [1,1], [1,2], [2,0], [2,1],[2,2]
+    T_normalized2Regular_a_yx = np.linalg.inv(np.array(
+        [[2./depth_a,           0,          0, -1.],
+         [         0, 2./height_a,          0, -1.],
+         [         0,           0, 2./width_a, -1.],
+         [         0,           0,          0,  1.]], 'float32'))
+    T_regular2Normalized_b_yx = np.array(
+        [[2./depth_b,           0,          0, -1.],
+         [         0, 2./height_b,          0, -1.],
+         [         0,           0, 2./width_b, -1.],
+         [         0,           0,          0,  1.]], 'float32')
+
+    #Normalize
+
+    pyTorchAffineMatTensor =\
+          torch.from_numpy(T_regular2Normalized_b_yx @\
+            unNormalizedAffineMatImageCoord_a2b_np @\
+            T_normalized2Regular_a_yx).to(device)[0:3,:]
+    # In rows and columens: 0->2, 2->0, 1->1
+    # [0,0], [0,1], [0,2],
+    # [1,0], [1,1], [1,2],
+    # [2,0], [2,1],[2,2]
     block3x3Flipped  =  pyTorchAffineMatTensor[0:3, 0:3].flip([0,1])
+    lastColFlipped =  pyTorchAffineMatTensor[0:3,-1].flip(0)
     pyTorchAffineMatTensor[0:3, 0:3]=block3x3Flipped
+    pyTorchAffineMatTensor[0:3,-1]=lastColFlipped
     return pyTorchAffineMatTensor
 
-def getUnNormalizedAffineMatTensorInImageCoord(pyTorchAffineMatTensorInNormalizedCoord_a2b,  depth_a, height_a, width_a,  depth_b, height_b, width_b):
+
+def getUnNormalizedAffineMatTensorInImageCoord(pyTorchAffineMatTensorInNormalizedCoord_a2b,
+        depth_a, height_a, width_a,
+        depth_b, height_b, width_b):
     """
     parameters:
     pyTorchAffineMatTensorInNormalizedCoord_a2b : 4x4 (homogeneous) affine matrix in normalized image coordinate
@@ -371,13 +387,80 @@ def getUnNormalizedAffineMatTensorInImageCoord(pyTorchAffineMatTensorInNormalize
     """
     device = pyTorchAffineMatTensorInNormalizedCoord_a2b.device
     block3x3Flipped = pyTorchAffineMatTensorInNormalizedCoord_a2b[0:3, 0:3].flip([0,1])
+    lastColFlipped =  pyTorchAffineMatTensorInNormalizedCoord_a2b[0:3,-1].flip(0)
     tmpAffineMat=pyTorchAffineMatTensorInNormalizedCoord_a2b.clone()
     tmpAffineMat[0:3, 0:3]=block3x3Flipped
+    tmpAffineMat[0:3,-1]=lastColFlipped
 
-    T_regular2normalized_a_yx = torch.tensor([[2./depth_a, 0, 0, -1.],[ 0, 2./height_a, 0, -1.],[0, 0, 2./width_a, -1.], [0, 0, 0, 1.]], dtype=torch.float32).to(device)
-    T_normalized2regular_b_yx = torch.tensor([[2./depth_b, 0, 0, -1.],[ 0, 2./height_b, 0, -1.],[0, 0, 2./width_b, -1.], [0, 0, 0, 1.]], dtype=torch.float32).to(device).inverse()    #Normalize, convert into tensor, use 1st 3 rows.
-    unNormalizedAffineMatTensorInImageCoord = T_normalized2regular_b_yx.matmul(tmpAffineMat.matmul(T_regular2normalized_a_yx))
+    T_regular2normalized_a_yx = torch.tensor(
+        [[2./depth_a,           0,          0, -1.],
+         [         0, 2./height_a,          0, -1.],
+         [         0,           0, 2./width_a, -1.],
+         [         0,           0,          0,  1.]],
+         dtype=torch.float32).to(device)
+    T_normalized2regular_b_yx = torch.tensor(
+        [[2./depth_b,           0,          0, -1.],
+         [         0, 2./height_b,          0, -1.],
+         [         0,           0, 2./width_b, -1.],
+         [         0,           0,          0,  1.]],
+         dtype=torch.float32).to(device).inverse()
+    unNormalizedAffineMatTensorInImageCoord =\
+        T_normalized2regular_b_yx.matmul(tmpAffineMat.matmul(T_regular2normalized_a_yx))
     return unNormalizedAffineMatTensorInImageCoord
+
+#Generate normalized torch-functional  grid   from  torch-interpol grid.
+def convertGrid_interpol2functional(interpol_grid_batched, depth, height, width):
+    # printTensor("interpol_grid_batched", interpol_grid_batched)
+    batchSize=interpol_grid_batched.shape[0]
+    #normalization matrix
+    normalizationMat = torch.tensor(
+        [[2./depth,         0,        0, -1.],
+         [       0, 2./height,        0, -1.],
+         [       0,         0, 2./width, -1.],
+         [       0,         0,        0,  1.]],
+        dtype=torch.float32, device=interpol_grid_batched.device)
+    nb_dim = normalizationMat.shape[-1] - 1
+    normalizationMat_rot = normalizationMat[:nb_dim, :nb_dim]
+    normalizationMat_tr = normalizationMat[:nb_dim, -1]
+    #Expand normalization matrix by batchSize
+    normalizationMat_rot = normalizationMat_rot.expand(batchSize, *normalizationMat_rot.shape)
+    # printTensor("normalizationMat_rot", normalizationMat_rot)
+    normalizationMat_tr =   normalizationMat_tr.expand(batchSize, *normalizationMat_tr.shape)
+    # printTensor("normalizationMat_tr", normalizationMat_tr)
+    # Add dimension (in-place) in the end to support  matmul with normalizationMat_rot.
+    # Then remove that dimension before adding  with normalizationMat_tr
+    field_ij_batched_normalized =\
+        torch.matmul(normalizationMat_rot, interpol_grid_batched.unsqueeze(-1)).squeeze(-1)\
+        + normalizationMat_tr
+    # ij to xy
+    field_xy_batched_normalized = torch.flip(field_ij_batched_normalized, [-1])
+    return field_xy_batched_normalized
+
+#Generate normalized torch-functional  grid   from  torch-interpol grid.
+def convertGrid_functional2interpol(functional_grid_batched, depth, height, width):
+    # printTensor("functional_grid_batched", functional_grid_batched)
+    batchSize=functional_grid_batched.shape[0]
+    #xy to ij
+    field_ij_batched_normalized = torch.flip(functional_grid_batched, [-1])
+    #deNormalization matrix
+    deNormalizationMat = torch.linalg.inv(torch.tensor(
+        [[2./depth,         0,        0, -1.],
+         [       0, 2./height,        0, -1.],
+         [       0,         0, 2./width, -1.],
+         [       0,         0,        0,  1.]],
+        dtype=torch.float32, device=functional_grid_batched.device))
+    nb_dim = deNormalizationMat.shape[-1] - 1
+    deNormalizationMat_rot = deNormalizationMat[:nb_dim, :nb_dim]
+    deNormalizationMat_tr = deNormalizationMat[:nb_dim, -1]
+    #Expand deNormalization matrix by batchSize
+    deNormalizationMat_rot = deNormalizationMat_rot.expand(batchSize, *deNormalizationMat_rot.shape)
+    deNormalizationMat_tr =   deNormalizationMat_tr.expand(batchSize, *deNormalizationMat_tr.shape)
+    # Add dimension (in-place) in the end to support  matmul with normalizationMat_rot.
+    # Then remove that dimension before adding  with normalizationMat_tr
+    field_ij_batched_deormalized =\
+        torch.matmul(deNormalizationMat_rot, field_ij_batched_normalized.unsqueeze(-1)).squeeze(-1)\
+        + deNormalizationMat_tr
+    return field_ij_batched_deormalized
 
 def seg_body_torch(vol, air_threshold=-300):
     try:
