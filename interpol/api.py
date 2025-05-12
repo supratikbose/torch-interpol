@@ -522,7 +522,8 @@ def add_identity_grid(disp):
 
 
 def affine_grid(mat, shape):
-    """Create a dense transformation grid from an affine matrix.
+    """Create a dense transformation grid
+    from an affine matrix.
 
     Parameters
     ----------
