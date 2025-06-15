@@ -88,15 +88,21 @@ def printTensor(name,tensor):
 
 class v1_volumeComparisonViewer3D:
 
-    def __init__(self, 
-        listVolumes, listLabels, 
-        maxZ0=256, maxZ1=256, maxZ2=256, 
-        figsize=(12,8), cmap='gray', 
-        displayColorbar=True, useExternalWindowCenter=False, wMin=-500, wMax=500,
-        plotHistogram=False, binEdges=[-1000, -200, -50,  0, 50, 200, 1000], xTicks=[-1000, -200,  -50,  50,  200, 1000],useAspectCol=True):
-        assert len(listVolumes)==len(listLabels), f'listVolumes and listLabels should have same number of elements'
+    def __init__(self,
+        listVolumes, listLabels,
+        maxZ0=256, maxZ1=256, maxZ2=256,
+        figsize=(12,8), cmap='gray',
+        displayColorbar=True, useExternalWindowCenter=False,
+        wMin=-500, wMax=500,
+        save_path = None, display=True,
+        plotHistogram=False, binEdges=[-1000, -200, -50,  0, 50, 200, 1000],
+        xTicks=[-1000, -200,  -50,  50,  200, 1000],useAspectCol=True):
+
+        assert len(listVolumes)==len(listLabels),\
+            f'listVolumes and listLabels should have same number of elements'
         for idx ,volume in enumerate(listVolumes):
-            assert volume.shape==(maxZ0, maxZ1, maxZ2), f'listVolumes[{idx}] shape mismatch'
+            assert volume.shape==(maxZ0, maxZ1, maxZ2),\
+                f'listVolumes[{idx}] shape mismatch'
 
         self.listVolumes=listVolumes
         self.listLabels=listLabels
@@ -111,13 +117,18 @@ class v1_volumeComparisonViewer3D:
         self.useExternalWindowCenter=useExternalWindowCenter
         self.wMin=wMin
         self.wMax=wMax
+        self.save_path = save_path
+        self.display=display
         self.plotHistogram=plotHistogram
         self.binEdges=binEdges
         self.xTicks=xTicks
         self.useAspectCol=useAspectCol
 
-        self.list_v = [[np.min(volume), np.max(volume)] for  volume in self.listVolumes]
-        #Mapping from displayPlane Name to [displayPlane_index, minSliceIndex_inPlane, maxSliceIndex_inPlane, defaultSliceIndex_inPlane]
+        self.list_v = [[np.min(volume), np.max(volume)]\
+            for  volume in self.listVolumes]
+        #Mapping from displayPlane Name to [displayPlane_index,
+        # minSliceIndex_inPlane,
+        # maxSliceIndex_inPlane, defaultSliceIndex_inPlane]
         self.planeInfoDict = {
             '0_PlaneHorDim3VerDim2':[0, 0, maxZ0-1,  maxZ0//2],
             '1_PlaneHorDim3VerDim1':[1, 0, maxZ1-1,  maxZ1//2],
@@ -130,12 +141,6 @@ class v1_volumeComparisonViewer3D:
         widgets.interact(self.views)
 
     def views(self):
-        # widgets.Text(value=self.addlText,placeholder='Type something',description='String:',disabled=False )
-        # widgets.interact(self.plot_slice,
-        #     z0=widgets.IntSlider(min=self.infoList_0[1], max=self.infoList_0[2], value=self.infoList_0[3], step=1, continuous_update=False, description=f'0_PlaneHorDim3VerDim2'),
-        #     z1=widgets.IntSlider(min=self.infoList_1[1], max=self.infoList_1[2], value=self.infoList_1[3], step=1, continuous_update=False, description=f'1_PlaneHorDim3VerDim1'),
-        #     z2=widgets.IntSlider(min=self.infoList_2[1], max=self.infoList_2[2], value=self.infoList_2[3], step=1, continuous_update=False, description=f'2_PlaneHorDim2VerDim1'),
-        #     )
         from ipywidgets import IntSlider, SliderStyle
         redStyle = SliderStyle(handle_color='red')
         yellowStyle = SliderStyle(handle_color='yellow')
@@ -143,46 +148,68 @@ class v1_volumeComparisonViewer3D:
 
         # widget=interactive(self.plot_slice, z0=128, z1=128, z2=128)
         widget=interactive(self.plot_slice,
-            z0=widgets.IntSlider(min=self.infoList_0[1], max=self.infoList_0[2], value=self.infoList_0[3], step=1, continuous_update=False, style=redStyle, description=f'0_PlaneHorDim3VerDim2'),
-            z1=widgets.IntSlider(min=self.infoList_1[1], max=self.infoList_1[2], value=self.infoList_1[3], step=1, continuous_update=False, style=yellowStyle, description=f'1_PlaneHorDim3VerDim1'),
-            z2=widgets.IntSlider(min=self.infoList_2[1], max=self.infoList_2[2], value=self.infoList_2[3], step=1, continuous_update=False, style=greenStyle, description=f'2_PlaneHorDim2VerDim1'),
+            z0=widgets.IntSlider(min=self.infoList_0[1], max=self.infoList_0[2],
+                value=self.infoList_0[3], step=1, continuous_update=False,
+                style=redStyle, description=f'0_PlaneHorDim3VerDim2'),
+            z1=widgets.IntSlider(min=self.infoList_1[1], max=self.infoList_1[2],
+                value=self.infoList_1[3], step=1, continuous_update=False,
+                style=yellowStyle, description=f'1_PlaneHorDim3VerDim1'),
+            z2=widgets.IntSlider(min=self.infoList_2[1], max=self.infoList_2[2],
+                value=self.infoList_2[3], step=1, continuous_update=False,
+                style=greenStyle, description=f'2_PlaneHorDim2VerDim1'),
             )
-        controls = HBox(widget.children[:-1], layout = Layout(flex_flow='row wrap'))
+        controls = HBox(widget.children[:-1],
+            layout = Layout(flex_flow='row wrap'))
         output = widget.children[-1]
-        display(VBox([controls, output]))
+        if self.display:
+            display(VBox([controls, output]))
 
     def computeAndPlotSliceHistogram(self, sliceImage, binEdges, xTicks, ax_ij):
         #https://realpython.com/python-histograms/
         #https://stackoverflow.com/questions/35418552/aligning-bins-to-xticks-in-plt-hist
         d= sliceImage.flatten()
-        n, bins, patches = ax_ij.hist(x=d, bins=binEdges, color='#0504aa',  alpha=0.7, rwidth=0.85)
+        n, bins, patches = ax_ij.hist(x=d, bins=binEdges, color='#0504aa', \
+            alpha=0.7, rwidth=0.85)
         ax_ij.grid(axis='y', alpha=0.75)
         ax_ij.set_xticks(xTicks)
         ax_ij.set_xlabel('HU Diff')
         ax_ij.set_ylabel('Num Voxels')
         maxfreq = n.max()
         # Set a clean upper y-axis limit.
-        ax_ij.set_ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
+        ax_ij.set_ylim(ymax=np.ceil(maxfreq / 10) * 10\
+            if maxfreq % 10 else maxfreq + 10)
 
     def plot_slice(self, z0, z1, z2):
         # Plot slice for the given plane and slice
-        numRows=self.numVolumes if False== self.plotHistogram else 2*self.numVolumes #3
+        numRows=self.numVolumes if False== self.plotHistogram\
+            else 2*self.numVolumes #3
         numCols=3 #self.numVolumes
-        f,ax = plt.subplots(numRows,numCols, squeeze=False, figsize=self.figsize)
+        f,ax = plt.subplots(numRows,numCols, squeeze=False,
+            figsize=self.figsize)
         for col in range(3):
             if 0==col:
-                listOfDiaplaySlicesInCol = [volume[z0,:,:] for volume in self.listVolumes]
+                listOfDiaplaySlicesInCol\
+                    = [volume[z0,:,:] for volume in self.listVolumes]
+                origin='upper'
             if 1==col:
-                #But coronal and sagittal views are upside down when displayed original. So compensate.
-                listOfDiaplaySlicesInCol = [np.flipud(volume[:,z1,:]) for volume in self.listVolumes]
+                listOfDiaplaySlicesInCol\
+                   = [volume[:,z1,:] for volume in self.listVolumes]
+                #But coronal and sagittal views are upside down when
+                # displayed original. So compensate.
+                origin='lower'
             if 2==col:
-                #But coronal and sagittal views are upside down when displayed original. So compensate.
-                listOfDiaplaySlicesInCol = [np.flipud(volume[:,:,z2]) for volume in self.listVolumes]
-            aspect_col = f'{(listOfDiaplaySlicesInCol[0].shape[1]+0.01) / (listOfDiaplaySlicesInCol[0].shape[0]+0.01):.1f}'
+                listOfDiaplaySlicesInCol\
+                    = [volume[:,:,z2] for volume in self.listVolumes]
+                #But coronal and sagittal views are upside down when
+                #  displayed original. So compensate.
+                origin='lower'
+            aspect_col =\
+                f'{(listOfDiaplaySlicesInCol[0].shape[1]+0.01) / (listOfDiaplaySlicesInCol[0].shape[0]+0.01):.1f}'
             # print(f'col: {col} aspect_col: {aspect_col}')
             for row in range(self.numVolumes):
                 img_row = row if False== self.plotHistogram else 2*row
                 im_ax_ij = ax[img_row,col]
+                im_ax_ij.set_xticks([],[])
                 im_ax_ij.grid(False)
                 # aspect_row_col = f'{(listOfDiaplaySlicesInCol[row].shape[1]+0.01) / (listOfDiaplaySlicesInCol[row].shape[0]+0.01):.1f}'
                 # https://stackoverflow.com/questions/23876588/matplotlib-colorbar-in-each-subplot
@@ -190,36 +217,49 @@ class v1_volumeComparisonViewer3D:
                     vminVal, vmaxVal = self.wMin, self.wMax
                 else:
                     vminVal, vmaxVal = self.list_v[row][0], self.list_v[row][1]
-                # im=im_ax_ij.imshow(listOfDiaplaySlicesInCol[row], cmap=plt.get_cmap(self.cmap), vmin=self.list_v[row][0], vmax=self.list_v[row][1], interpolation='none', aspect=aspect_col) # #, aspect=aspect_row_col
                 if True==self.useAspectCol:
-                    im=im_ax_ij.imshow(listOfDiaplaySlicesInCol[row], cmap=plt.get_cmap(self.cmap), vmin=vminVal, vmax=vmaxVal, interpolation='none', aspect=aspect_col) # #, aspect=aspect_row_col
+                    im=im_ax_ij.imshow(listOfDiaplaySlicesInCol[row],
+                        cmap=plt.get_cmap(self.cmap), vmin=vminVal,
+                        vmax=vmaxVal, interpolation='none', origin=origin,
+                        aspect=aspect_col)
                 else:
-                    im=im_ax_ij.imshow(listOfDiaplaySlicesInCol[row], cmap=plt.get_cmap(self.cmap), vmin=vminVal, vmax=vmaxVal, interpolation='none') # #, aspect=aspect_row_col
-
+                    im=im_ax_ij.imshow(listOfDiaplaySlicesInCol[row],
+                        cmap=plt.get_cmap(self.cmap), vmin=vminVal,
+                        vmax=vmaxVal, interpolation='none', origin=origin)
                 if self.displayColorbar:
                     plt.colorbar(im, ticks=self.xTicks, ax=im_ax_ij)
                 if 0==col:
                     im_ax_ij.set_title(self.listLabels[row],fontsize=10)
-                    im_ax_ij.axhline(y=z1, xmin=self.infoList_1[1], xmax=self.infoList_1[2],color='yellow',ls=':',lw=1.5)
-                    im_ax_ij.axvline(x=z2, ymin=self.infoList_2[1], ymax=self.infoList_2[2],color='green',ls=':',lw=1.5)
+                    im_ax_ij.axhline(y=z1,
+                        xmin=self.infoList_1[1], xmax=self.infoList_1[2],
+                        color='yellow',ls=':',lw=1.5)
+                    im_ax_ij.axvline(x=z2,
+                        ymin=self.infoList_2[1], ymax=self.infoList_2[2],
+                        color='green',ls=':',lw=1.5)
                 if 1==col:
-                    # Because in coronal view increasing column  moves towards feet but  increasing z0 in axial view takes towards head
-                    # Representation of  z0, i.e. red line location  in coronal view should be given at imageHeight -z0
-                    # = (maxZ0-1) - z0 = (self.infoList_0[2] - 1)-z0
-                    im_ax_ij.axhline(y=((self.infoList_0[2] - 1)-1)-z0, xmin=self.infoList_0[1], xmax=self.infoList_0[2],color='red',ls=':',lw=1.5)
-                    im_ax_ij.axvline(x=z2, ymin=self.infoList_2[1], ymax=self.infoList_2[2],color='green',ls=':',lw=1.5)
+                    im_ax_ij.axhline(y=z0, #y_loc,
+                        xmin=self.infoList_0[1], xmax=self.infoList_0[2],
+                        color='red',ls=':',lw=1.5)
+                    im_ax_ij.axvline(x=z2,
+                        ymin=self.infoList_2[1], ymax=self.infoList_2[2],
+                        color='green',ls=':',lw=1.5)
                 if 2==col:
-                    # Because in coronal view increasing column  moves towards feet but  increasing z0 in axial view takes towards head
-                    # Representation of  z0, i.e. red line location  in coronal view should be given at imageHeight -z0
-                    # = (maxZ0-1) - z0 = (self.infoList_0[2] - 1)-z0
-                    im_ax_ij.axhline(y=(self.infoList_0[2] - 1)-z0, xmin=self.infoList_0[1], xmax=self.infoList_0[2],color='red', ls=':',lw=1.5)
-                    im_ax_ij.axvline(x=z1, ymin=self.infoList_1[1], ymax=self.infoList_1[2],color='yellow',ls=':',lw=1.5)
+                    im_ax_ij.axhline(y=z0, #y_loc,
+                        xmin=self.infoList_0[1], xmax=self.infoList_0[2],
+                        color='red', ls=':',lw=1.5)
+                    im_ax_ij.axvline(x=z1,
+                        ymin=self.infoList_1[1], ymax=self.infoList_1[2],
+                        color='yellow',ls=':',lw=1.5)
                 if True==self.plotHistogram:
                     histogramRow = img_row+1
                     sliceImage=listOfDiaplaySlicesInCol[row]
                     hist_ax_ij = ax[histogramRow,col]
-                    self.computeAndPlotSliceHistogram(sliceImage, self.binEdges, self.xTicks, hist_ax_ij)
+                    self.computeAndPlotSliceHistogram(sliceImage,
+                        self.binEdges, self.xTicks, hist_ax_ij)
         # plt.axis("scaled")
+        plt.tight_layout()
+        if self.save_path is not None:
+            plt.savefig(self.save_path, dpi=300)
         plt.show()
 
 def getPushRotationMatrix(theta_deg, viewString,
